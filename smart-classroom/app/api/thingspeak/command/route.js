@@ -9,6 +9,7 @@ export async function POST(req) {
   const mode = Number(body.mode ?? 0);
   const auto = body.auto ? 1 : 0;
   const emergency = body.emergency ? 1 : 0;
+  const brightness = Number(body.brightness ?? 0);
 
   const writeKey = process.env.TS_COMMAND_WRITE_KEY;
   if (!writeKey) {
@@ -23,6 +24,7 @@ export async function POST(req) {
   url.searchParams.set("field1", String(mode));
   url.searchParams.set("field2", String(auto));
   url.searchParams.set("field3", String(emergency));
+  url.searchParams.set("field4", String(brightness));
 
   const res = await fetch(url, {
     method: "GET",

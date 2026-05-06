@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
 const MODE_NAMES = {
   0: "OFF",
@@ -9,9 +10,11 @@ const MODE_NAMES = {
   3: "PRESENTATION",
   4: "FOCUS",
   5: "EMERGENCY",
+  6: "CUSTOM",
 };
 
 const MODE_BUTTONS = [
+  { mode: 0, label: "OFF", sub: "All LEDs off" },
   { mode: 1, label: "Teaching", sub: "All rows ON" },
   { mode: 2, label: "Energy-Saving", sub: "Daylight aware" },
   { mode: 3, label: "Presentation", sub: "Front row OFF" },
@@ -19,14 +22,20 @@ const MODE_BUTTONS = [
   { mode: 5, label: "Emergency", sub: "Alarm override" },
 ];
 
-function Card({ title, value, sub }) {
+function Card({ title, value, sub, highlight }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4 shadow-sm">
-      <div className="text-[11px] uppercase tracking-[0.25em] text-slate-500">
+    <div className={`relative overflow-hidden rounded-xl border p-5 transition-all duration-300 ${
+      highlight 
+      ? "border-blue-500/50 bg-blue-500/5" 
+      : "border-slate-800 bg-slate-900"
+    }`}>
+      <div className={`text-[11px] uppercase tracking-[0.15em] font-medium ${highlight ? "text-blue-400" : "text-slate-400"}`}>
         {title}
       </div>
-      <div className="mt-2 text-2xl font-semibold text-white">{value}</div>
-      {sub ? <div className="mt-1 text-xs text-slate-400">{sub}</div> : null}
+      <div className={`mt-2 text-2xl font-bold ${highlight ? "text-blue-50" : "text-white"}`}>
+        {value}
+      </div>
+      {sub ? <div className="mt-1 text-xs text-slate-500">{sub}</div> : null}
     </div>
   );
 }
@@ -39,6 +48,7 @@ export default function Page() {
   const [autoMode, setAutoMode] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [sliderVal, setSliderVal] = useState(0);
 
   async function loadTelemetry() {
     try {
@@ -97,6 +107,14 @@ export default function Page() {
     return Math.round(((base - current) / base) * 100);
   }, [parsed.power]);
 
+  const chartData = useMemo(() => {
+    return feeds.map((f) => ({
+      time: f.created_at ? new Date(f.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "",
+      energy: Number(f.field6 ?? 0),
+      power: Number(f.field5 ?? 0)
+    }));
+  }, [feeds]);
+
   async function sendCommand(next) {
     setSending(true);
     try {
@@ -123,157 +141,227 @@ export default function Page() {
     : "No data yet";
 
   return (
-    <main className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100">
-      <div className="mx-auto max-w-6xl space-y-6">
-        <header className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+    <main className="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 font-sans">
+      <div className="mx-auto max-w-5xl space-y-6">
+        <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between pb-6 border-b border-slate-800">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.35em] text-slate-500">
-              ESP32 · ThingSpeak Dashboard
-            </p>
-            <h1 className="mt-2 text-3xl font-bold text-white">
-              Smart Classroom Lighting
+            <div className="flex items-center gap-2">
+              <div className={`h-2 w-2 rounded-full ${loading ? "bg-amber-400" : error ? "bg-red-500" : "bg-green-500"}`} />
+              <p className="text-xs uppercase tracking-widest text-slate-400 font-medium">
+                Classroom Dashboard
+              </p>
+            </div>
+            <h1 className="mt-1 text-3xl font-bold text-white tracking-tight">
+              Lighting & Energy
             </h1>
-            <p className="mt-1 text-sm text-slate-400">
-              Latest update: {lastUpdated}
+            <p className="mt-1 text-sm text-slate-500">
+              Last synced: {lastUpdated}
             </p>
-          </div>
-
-          <div className="rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3">
-            <div className="text-[11px] uppercase tracking-[0.25em] text-slate-500">
-              Connection
-            </div>
-            <div className="mt-1 text-sm font-medium text-emerald-400">
-              {loading ? "Loading..." : error ? "Error" : "Live"}
-            </div>
           </div>
         </header>
 
-        {error ? (
-          <div className="rounded-2xl border border-red-900 bg-red-950/40 p-4 text-sm text-red-300">
+        {error && (
+          <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-4 text-sm text-red-400">
             {error}
           </div>
-        ) : null}
+        )}
 
-        <section className="grid gap-4 md:grid-cols-4">
+        <section className="grid gap-5 md:grid-cols-4">
           <Card
-            title="PIR"
+            title="Occupancy"
             value={parsed.pir ? "Motion" : "Empty"}
-            sub={parsed.occupied ? "Hold active" : "Not occupied"}
+            sub={parsed.occupied ? "Hold timer active" : "No movement"}
+            highlight={parsed.pir > 0}
           />
           <Card
-            title="LDR"
+            title="Ambient Light"
             value={String(parsed.ldr)}
-            sub={`${ldrPct}% ambient level`}
+            sub={`${ldrPct}% relative brightness`}
           />
           <Card
-            title="Mode"
+            title="Active Mode"
             value={MODE_NAMES[parsed.mode] || "UNKNOWN"}
-            sub={autoMode ? "Automatic" : "Manual override"}
+            sub={autoMode ? "Sensor Driven (Auto)" : "Manual Override"}
+            highlight={!autoMode}
           />
           <Card
-            title="Energy"
+            title="Accumulated Energy"
             value={`${parsed.energy.toFixed(4)} Wh`}
-            sub={savePercent > 0 ? `${savePercent}% below base` : "Estimate only"}
+            sub={savePercent > 0 ? `Saving ${savePercent}% vs base` : "Estimating..."}
+            highlight={savePercent > 0}
           />
         </section>
 
-        <section className="grid gap-4 md:grid-cols-3">
+        <section className="grid gap-5 md:grid-cols-3">
           <Card
-            title="Instant Power"
+            title="Current Draw"
             value={`${parsed.power.toFixed(2)} W`}
-            sub="Estimated from current LED state"
+            sub="Live estimated power"
           />
           <Card
-            title="Row Brightness"
+            title="LED Brightness"
             value={String(parsed.brightness)}
-            sub="0 to 1 indicator from firmware"
+            sub="0 to 1 level indicator"
           />
           <Card
-            title="Buzzer"
-            value={parsed.buzzer ? "ON" : "OFF"}
-            sub={parsed.buzzer ? "Emergency active" : "Normal"}
+            title="Alert Status"
+            value={parsed.buzzer ? "ALARM" : "CLEAR"}
+            sub={parsed.buzzer ? "Emergency mode active" : "Normal ops"}
           />
         </section>
 
-        <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div className="text-[11px] uppercase tracking-[0.25em] text-slate-500">
-                Control Mode
+        <div className="grid gap-6 lg:grid-cols-3">
+          <section className="lg:col-span-2 rounded-xl border border-slate-800 bg-slate-900 p-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="text-xs uppercase tracking-widest font-medium text-slate-400">
+                  Control Panel
+                </div>
+                <div className="mt-1 text-lg font-semibold text-white">
+                  {autoMode ? "Automatic Mode" : "Manual Override"}
+                </div>
               </div>
-              <div className="mt-1 text-lg font-semibold text-white">
-                {autoMode ? "Automatic" : "Manual"}
+
+              <div className="flex rounded-lg bg-slate-950 p-1 border border-slate-800">
+                <button
+                  disabled={sending}
+                  onClick={() => sendCommand({ mode: 0, auto: true, emergency: 0 })}
+                  className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${autoMode ? "bg-blue-600 text-white" : "text-slate-400 hover:text-white"}`}
+                >
+                  Auto
+                </button>
+                <button
+                  disabled={sending}
+                  onClick={() => sendCommand({ mode: 0, auto: false, emergency: 0 })}
+                  className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${!autoMode ? "bg-slate-700 text-white" : "text-slate-400 hover:text-white"}`}
+                >
+                  Manual
+                </button>
               </div>
-              <p className="text-sm text-slate-400">
-                Manual commands are sent to the ThingSpeak control channel, then
-                the ESP32 polls them.
-              </p>
             </div>
 
-            <div className="flex gap-2">
-              <button
-                disabled={sending}
-                onClick={() => sendCommand({ mode: 0, auto: true, emergency: 0 })}
-                className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
-              >
-                Auto
-              </button>
-              <button
-                disabled={sending}
-                onClick={() => sendCommand({ mode: 0, auto: false, emergency: 0 })}
-                className="rounded-xl border border-slate-700 px-4 py-2 text-sm text-slate-200 hover:bg-slate-800 disabled:opacity-50"
-              >
-                Manual
-              </button>
+            <div className={`mt-6 grid gap-3 grid-cols-2 md:grid-cols-3 transition-opacity ${autoMode ? "opacity-40 pointer-events-none" : "opacity-100"}`}>
+              {MODE_BUTTONS.map((btn) => {
+                const isActive = controlMode === btn.mode && !autoMode;
+                return (
+                  <button
+                    key={btn.mode}
+                    disabled={sending || autoMode}
+                    onClick={() =>
+                      sendCommand({ mode: btn.mode, auto: false, emergency: btn.mode === 5 ? 1 : 0, brightness: 0 })
+                    }
+                    className={`rounded-xl border p-4 text-left transition-colors ${
+                      isActive
+                        ? "border-blue-500 bg-blue-500/10"
+                        : "border-slate-800 bg-slate-950 hover:border-slate-600"
+                    }`}
+                  >
+                    <div className={`text-sm font-medium ${isActive ? "text-blue-400" : "text-slate-200"}`}>{btn.label}</div>
+                    <div className="mt-1 text-xs text-slate-500">{btn.sub}</div>
+                  </button>
+                );
+              })}
             </div>
-          </div>
 
-          <div className="mt-4 grid gap-3 md:grid-cols-5">
-            {MODE_BUTTONS.map((btn) => (
-              <button
-                key={btn.mode}
-                disabled={sending || autoMode}
-                onClick={() =>
-                  sendCommand({ mode: btn.mode, auto: false, emergency: btn.mode === 5 ? 1 : 0 })
-                }
-                className={`rounded-2xl border p-4 text-left transition ${
-                  controlMode === btn.mode && !autoMode
-                    ? "border-amber-400 bg-amber-500/10"
-                    : "border-slate-800 bg-slate-950 hover:bg-slate-900"
-                } disabled:opacity-40`}
-              >
-                <div className="text-sm font-semibold text-white">{btn.label}</div>
-                <div className="mt-1 text-xs text-slate-400">{btn.sub}</div>
-              </button>
-            ))}
-          </div>
-        </section>
+            <div className={`mt-8 border-t border-slate-800 pt-6 transition-opacity ${autoMode ? "opacity-30 pointer-events-none" : "opacity-100"}`}>
+              <div className="text-xs uppercase tracking-widest font-medium text-slate-400 mb-6">
+                Manual Brightness Override
+              </div>
+              <div className="px-2">
+                <div className="relative">
+                  <div className="absolute top-1/2 left-0 right-0 h-1.5 -mt-[3px] bg-slate-800 rounded-full flex justify-between px-[2px] pointer-events-none">
+                    {[1, 2, 3].map((stop) => (
+                      <div key={stop} className={`h-1.5 w-1.5 rounded-full ${sliderVal >= stop ? "bg-blue-500" : "bg-slate-600"}`} />
+                    ))}
+                  </div>
+                  
+                  <input
+                    type="range"
+                    min="1"
+                    max="3"
+                    step="1"
+                    disabled={sending || autoMode}
+                    value={Math.max(1, sliderVal)}
+                    onChange={(e) => setSliderVal(Number(e.target.value))}
+                    onMouseUp={(e) => {
+                      if (!autoMode) {
+                        sendCommand({ mode: 6, auto: false, emergency: 0, brightness: Number(e.target.value) });
+                      }
+                    }}
+                    className="relative z-10 w-full h-2 appearance-none bg-transparent cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:border-[3px] [&::-webkit-slider-thumb]:border-slate-900 [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-blue-500 [&::-moz-range-thumb]:border-[3px] [&::-moz-range-thumb]:border-slate-900"
+                  />
+                </div>
+                
+                <div className="flex justify-between mt-3 text-xs font-semibold text-slate-500 uppercase tracking-widest">
+                  <span className={sliderVal <= 1 ? "text-blue-400" : ""}>Low</span>
+                  <span className={sliderVal === 2 ? "text-blue-400" : ""}>Med</span>
+                  <span className={sliderVal === 3 ? "text-blue-400" : ""}>Max</span>
+                </div>
+              </div>
+            </div>
+          </section>
 
-        <section className="rounded-2xl border border-slate-800 bg-slate-900 p-5">
-          <div className="text-[11px] uppercase tracking-[0.25em] text-slate-500">
-            Recent Entries
+          <section className="col-span-1 rounded-xl border border-slate-800 bg-slate-900 p-6 flex flex-col min-h-[300px]">
+            <div className="flex items-center justify-between mb-4">
+              <div className="text-xs uppercase tracking-widest font-medium text-slate-400">
+                Live Analytics
+              </div>
+            </div>
+            
+            <div className="flex-1 w-full bg-slate-950 rounded-lg p-2 border border-slate-800 min-h-[200px]" style={{ minHeight: "200px", minWidth: 0 }}>
+              <ResponsiveContainer width="100%" height="100%" minHeight={200} minWidth={100}>
+                <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -25, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorEnergy" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4}/>
+                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="time" stroke="#475569" fontSize={10} tickLine={false} axisLine={false} dy={10} />
+                  <YAxis stroke="#475569" fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => v.toFixed(2)} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: '#0f172a', borderColor: '#1e293b', borderRadius: '8px', fontSize: '12px', color: '#fff' }} 
+                    itemStyle={{ color: '#3b82f6', fontWeight: 'bold' }} 
+                  />
+                  <Area type="monotone" dataKey="energy" stroke="#3b82f6" strokeWidth={2} fillOpacity={1} fill="url(#colorEnergy)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="mt-4 text-center text-xs text-slate-500">
+              Accumulated Energy Source (Wh)
+            </div>
+          </section>
+        </div>
+
+        <section className="rounded-xl border border-slate-800 bg-slate-900 p-6">
+          <div className="text-xs uppercase tracking-widest font-medium text-slate-400 mb-4">
+            Telemetry Stream
           </div>
-          <div className="mt-3 overflow-hidden rounded-xl border border-slate-800">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-950 text-slate-400">
+          <div className="overflow-x-auto rounded-lg border border-slate-800 bg-slate-950">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-[#0B1121] text-xs uppercase tracking-wider text-slate-500 border-b border-slate-800">
                 <tr>
-                  <th className="px-3 py-2 text-left">Time</th>
-                  <th className="px-3 py-2 text-left">PIR</th>
-                  <th className="px-3 py-2 text-left">LDR</th>
-                  <th className="px-3 py-2 text-left">Mode</th>
-                  <th className="px-3 py-2 text-left">Power</th>
+                  <th className="px-5 py-4 font-semibold">Timestamp</th>
+                  <th className="px-5 py-4 font-semibold">PIR Event</th>
+                  <th className="px-5 py-4 font-semibold">LDR Value</th>
+                  <th className="px-5 py-4 font-semibold">System Mode</th>
+                  <th className="px-5 py-4 font-semibold">Est. Power (W)</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-slate-800/50">
                 {feeds.slice(-8).reverse().map((f) => (
-                  <tr key={f.entry_id} className="border-t border-slate-800">
-                    <td className="px-3 py-2 text-slate-300">
+                  <tr key={f.entry_id} className="hover:bg-slate-800/20 transition-colors">
+                    <td className="px-5 py-3 font-medium text-slate-300">
                       {f.created_at ? new Date(f.created_at).toLocaleTimeString() : "-"}
                     </td>
-                    <td className="px-3 py-2">{f.field1 ?? "-"}</td>
-                    <td className="px-3 py-2">{f.field2 ?? "-"}</td>
-                    <td className="px-3 py-2">{MODE_NAMES[Number(f.field3)] || f.field3 || "-"}</td>
-                    <td className="px-3 py-2">{f.field5 ?? "-"}</td>
+                    <td className="px-5 py-3 text-slate-400">{f.field1 ?? "-"}</td>
+                    <td className="px-5 py-3 text-slate-400">{f.field2 ?? "-"}</td>
+                    <td className="px-5 py-3">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold bg-slate-800 text-slate-300">
+                        {MODE_NAMES[Number(f.field3)] || f.field3 || "-"}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3 text-emerald-400/90 font-mono">{f.field5 ?? "-"}</td>
                   </tr>
                 ))}
               </tbody>

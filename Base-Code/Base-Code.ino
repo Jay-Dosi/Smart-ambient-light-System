@@ -4,16 +4,16 @@
 #include <ctype.h>
 
 // ===================== WIFI + THINGSPEAK =====================
-const char* WIFI_SSID = "YOUR_WIFI_SSID";
-const char* WIFI_PASSWORD = "YOUR_WIFI_PASSWORD";
+const char* WIFI_SSID = "Victus";
+const char* WIFI_PASSWORD = "asdfghjkl;'";
 
 // Telemetry channel: ESP32 -> ThingSpeak
-const char* TS_TELEMETRY_WRITE_KEY = "YOUR_TELEMETRY_WRITE_KEY";
-const long   TS_TELEMETRY_CHANNEL_ID = 1234567;
+const char* TS_TELEMETRY_WRITE_KEY = "NA5EUCNV6A4RE3RT";
+const long   TS_TELEMETRY_CHANNEL_ID = 3371690;
 
 // Control channel: Frontend -> ThingSpeak -> ESP32
-const char* TS_CONTROL_READ_KEY = "YOUR_CONTROL_READ_KEY";
-const long   TS_CONTROL_CHANNEL_ID = 7654321;
+const char* TS_CONTROL_READ_KEY = "IYYHCDGUP44GYD0T";
+const long   TS_CONTROL_CHANNEL_ID = 3371865;
 
 // ThingSpeak free tier is 15s minimum update interval, so stay above that.
 const unsigned long TELEMETRY_INTERVAL_MS = 20000;
@@ -41,7 +41,8 @@ enum Mode {
   MODE_ENERGY_SAVING = 2,
   MODE_PRESENTATION = 3,
   MODE_FOCUS = 4,
-  MODE_EMERGENCY = 5
+  MODE_EMERGENCY = 5,
+  MODE_CUSTOM = 6
 };
 
 Mode currentMode = MODE_OFF;
@@ -96,6 +97,7 @@ void setEnergySavingMode(int ldrValue);
 void setPresentationMode();
 void setFocusMode();
 void setEmergencyMode();
+void setCustomBrightness(int level);
 void turnOffAll();
 void applyOutputs(const OutputState &out);
 void resetIndicators();
@@ -298,6 +300,22 @@ void setEmergencyMode() {
   applyOutputs(out);
 }
 
+void setCustomBrightness(int level) {
+  if (currentMode != MODE_CUSTOM) Serial.println("[MODE] CUSTOM (Slider)");
+  currentMode = MODE_CUSTOM;
+
+  int pwm = 0;
+  if (level == 1) pwm = 85;
+  else if (level == 2) pwm = 170;
+  else if (level >= 3) pwm = 255;
+
+  OutputState out;
+  out.row1 = pwm;
+  out.row2 = pwm;
+  out.row3 = pwm;
+  applyOutputs(out);
+}
+
 void turnOffAll() {
   OutputState out;
   applyOutputs(out);
@@ -396,6 +414,7 @@ void pollControlFromThingSpeak() {
   int modeCmd = readThingSpeakFieldAsInt(1);
   int autoFlag = readThingSpeakFieldAsInt(2);
   int emergencyFlag = readThingSpeakFieldAsInt(3);
+  int brightnessCmd = readThingSpeakFieldAsInt(4);
 
   if (emergencyFlag == 1) {
     emergencyOverride = true;
@@ -414,11 +433,13 @@ void pollControlFromThingSpeak() {
     manualOverride = true;
 
     switch (modeCmd) {
+      case 0: turnOffAll(); break;
       case 1: setTeachingMode(); break;
       case 2: setEnergySavingMode(analogRead(LDR_PIN)); break;
       case 3: setPresentationMode(); break;
       case 4: setFocusMode(); break;
       case 5: emergencyOverride = true; break;
+      case 6: setCustomBrightness(brightnessCmd); break;
       default: break;
     }
   }
@@ -514,6 +535,7 @@ String getModeName(int mode) {
     case MODE_PRESENTATION: return "PRESENTATION";
     case MODE_FOCUS: return "FOCUS";
     case MODE_EMERGENCY: return "EMERGENCY";
+    case MODE_CUSTOM: return "CUSTOM";
     default: return "UNKNOWN";
   }
 }
