@@ -6,11 +6,6 @@ export const dynamic = "force-dynamic";
 export async function POST(req) {
   const body = await req.json().catch(() => ({}));
 
-  const mode = Number(body.mode ?? 0);
-  const auto = body.auto ? 1 : 0;
-  const emergency = body.emergency ? 1 : 0;
-  const brightness = Number(body.brightness ?? 0);
-
   const writeKey = process.env.TS_COMMAND_WRITE_KEY;
   if (!writeKey) {
     return NextResponse.json(
@@ -21,10 +16,19 @@ export async function POST(req) {
 
   const url = new URL("https://api.thingspeak.com/update");
   url.searchParams.set("api_key", writeKey);
-  url.searchParams.set("field1", String(mode));
-  url.searchParams.set("field2", String(auto));
-  url.searchParams.set("field3", String(emergency));
-  url.searchParams.set("field4", String(brightness));
+  
+  if (body.mode !== undefined) {
+    url.searchParams.set("field1", String(Number(body.mode)));
+  }
+  if (body.auto !== undefined) {
+    url.searchParams.set("field2", body.auto ? "1" : "0");
+  }
+  if (body.emergency !== undefined) {
+    url.searchParams.set("field3", body.emergency ? "1" : "0");
+  }
+  if (body.brightness !== undefined) {
+    url.searchParams.set("field4", String(Number(body.brightness)));
+  }
 
   const res = await fetch(url, {
     method: "GET",

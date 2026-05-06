@@ -186,24 +186,23 @@ void loop() {
 
 // ===================== WIFI =====================
 void connectWiFi() {
-  if (WiFi.status() == WL_CONNECTED) return;
-
-  Serial.print("Connecting to Wi-Fi");
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  unsigned long start = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - start < 8000) {
-    delay(250);
-    Serial.print(".");
+  if (WiFi.status() == WL_CONNECTED) {
+    static bool connectedPrinted = false;
+    if (!connectedPrinted) {
+      Serial.println("\nWi-Fi connected");
+      Serial.print("IP: ");
+      Serial.println(WiFi.localIP());
+      connectedPrinted = true;
+    }
+    return;
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nWi-Fi connected");
-    Serial.print("IP: ");
-    Serial.println(WiFi.localIP());
-  } else {
-    Serial.println("\nWi-Fi connection failed");
+  static unsigned long lastWifiAttemptMs = 0;
+  if (lastWifiAttemptMs == 0 || millis() - lastWifiAttemptMs >= 10000) {
+    Serial.println("Connecting to Wi-Fi...");
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+    lastWifiAttemptMs = millis();
   }
 }
 
@@ -238,6 +237,10 @@ void processAutomaticLogic(int ldrValue) {
     setTeachingMode();
   }
   // Mid band -> keep current mode, do not flip-flop
+  else if (currentMode == MODE_OFF) {
+    // If we transition into mid-band from OFF, pick a default active mode
+    setTeachingMode();
+  }
 }
 
 // ===================== MODE FUNCTIONS =====================
@@ -358,8 +361,14 @@ void accumulateEnergy() {
 }
 
 float estimateInstantPowerW(const OutputState &out) {
-  auto rowPower = [](int pwm) -> float {
-    return ROW_FULL_POWER_W * (pwm / 255.0f);
+  float brightnessFactor = 1.0f;
+  if (manualOverride && !emergencyOverride) {
+    if (globalManualBrightness == 1) brightnessFactor = 0.33f;
+    else if (globalManualBrightness == 2) brightnessFactor = 0.66f;
+  }
+
+  auto rowPower = [&](int pwm) -> float {
+    return ROW_FULL_POWER_W * ((pwm * brightnessFactor) / 255.0f);
   };
 
   float power = 0.0f;
@@ -383,7 +392,7 @@ void publishTelemetryToThingSpeak(int pirState, int ldrValue) {
 
   WiFiClient client;
   HTTPClient http;
-  http.setTimeout(2000);
+  http.setTimeout(1500);
 
   String url = "http://api.thingspeak.com/update?api_key=";
   url += TS_TELEMETRY_WRITE_KEY;
@@ -422,10 +431,10 @@ void pollControlFromThingSpeak() {
   }
   lastProcessedControlEntryId = entryId;
 
-  int modeCmd = readJsonIntField(json, "field1", 0);      // 0 = no change, 1..5 = modes
-  int autoFlag = readJsonIntField(json, "field2", 1);     // 1 = auto, 0 = manual
-  int emergencyFlag = readJsonIntField(json, "field3", 0);
-  int brightnessCmd = readJsonIntField(json, "field4", 0); // optional manual brightness
+  int modeCmd = readJsonIntField(json, "field1", -1);      // -1 = no change, 0 = no change, 1..5 = modes
+  int autoFlag = readJsonIntField(json, "field2", -1);     // -1 = no change, 1 = auto, 0 = manual
+  int emergencyFlag = readJsonIntField(json, "field3", -1); // -1 = no change
+  int brightnessCmd = readJsonIntField(json, "field4", -1); // optional manual brightness
 
   if (brightnessCmd >= 1 && brightnessCmd <= 3) {
     globalManualBrightness = brightnessCmd;
@@ -434,52 +443,42 @@ void pollControlFromThingSpeak() {
   if (emergencyFlag == 1) {
     emergencyOverride = true;
     manualOverride = false;
-    return;
-  }
-
-  if (emergencyFlag == 0 && emergencyOverride) {
+  } else if (emergencyFlag == 0) {
     emergencyOverride = false;
-    // Do not force Teaching here; let the current mode or next command decide.
   }
 
   if (autoFlag == 1) {
     manualOverride = false;
-    return;
+  } else if (autoFlag == 0) {
+    manualOverride = true;
   }
 
-  // Manual mode
-  manualOverride = true;
-
-  // IMPORTANT FIX:
-  // Do NOT force mode 1 when modeCmd is 0.
-  // A zero means "no new manual command", so keep the current mode.
-  switch (modeCmd) {
-    case 1:
-      setTeachingMode();
-      break;
-    case 2:
-      setEnergySavingMode(analogRead(LDR_PIN));
-      break;
-    case 3:
-      setPresentationMode();
-      break;
-    case 4:
-      setFocusMode();
-      break;
-    case 5:
-      emergencyOverride = true;
-      break;
-    case 0:
-    default:
-      // No new command, keep current state.
-      break;
+  if (modeCmd >= 1 && modeCmd <= 5) {
+    manualOverride = true;
+    switch (modeCmd) {
+      case 1:
+        setTeachingMode();
+        break;
+      case 2:
+        setEnergySavingMode(analogRead(LDR_PIN));
+        break;
+      case 3:
+        setPresentationMode();
+        break;
+      case 4:
+        setFocusMode();
+        break;
+      case 5:
+        emergencyOverride = true;
+        break;
+    }
   }
 }
 
 bool fetchLatestControlFromThingSpeak(String &jsonOut) {
   WiFiClient client;
   HTTPClient http;
-  http.setTimeout(2500);
+  http.setTimeout(1500);
 
   String url = "http://api.thingspeak.com/channels/";
   url += String(TS_CONTROL_CHANNEL_ID);
