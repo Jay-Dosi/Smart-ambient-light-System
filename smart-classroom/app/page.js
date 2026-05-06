@@ -10,7 +10,6 @@ const MODE_NAMES = {
   3: "PRESENTATION",
   4: "FOCUS",
   5: "EMERGENCY",
-  6: "CUSTOM",
 };
 
 const MODE_BUTTONS = [
@@ -44,11 +43,11 @@ export default function Page() {
   const [latest, setLatest] = useState(null);
   const [feeds, setFeeds] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [controlMode, setControlMode] = useState(0);
+  const [controlMode, setControlMode] = useState(1);
   const [autoMode, setAutoMode] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const [sliderVal, setSliderVal] = useState(0);
+  const [sliderVal, setSliderVal] = useState(3);
 
   async function loadTelemetry() {
     try {
@@ -248,7 +247,7 @@ export default function Page() {
                     key={btn.mode}
                     disabled={sending || autoMode}
                     onClick={() =>
-                      sendCommand({ mode: btn.mode, auto: false, emergency: btn.mode === 5 ? 1 : 0, brightness: 0 })
+                      sendCommand({ mode: btn.mode, auto: false, emergency: btn.mode === 5 ? 1 : 0, brightness: sliderVal })
                     }
                     className={`rounded-xl border p-4 text-left transition-colors ${
                       isActive
@@ -285,7 +284,7 @@ export default function Page() {
                     onChange={(e) => setSliderVal(Number(e.target.value))}
                     onMouseUp={(e) => {
                       if (!autoMode) {
-                        sendCommand({ mode: 6, auto: false, emergency: 0, brightness: Number(e.target.value) });
+                        sendCommand({ mode: controlMode, auto: false, emergency: controlMode === 5 ? 1 : 0, brightness: Number(e.target.value) });
                       }
                     }}
                     className="relative z-10 w-full h-2 appearance-none bg-transparent cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:border-[3px] [&::-webkit-slider-thumb]:border-slate-900 [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-blue-500 [&::-moz-range-thumb]:border-[3px] [&::-moz-range-thumb]:border-slate-900"
