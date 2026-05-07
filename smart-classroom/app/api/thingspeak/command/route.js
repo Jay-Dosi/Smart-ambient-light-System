@@ -36,6 +36,11 @@ export async function POST(req) {
   });
 
   const text = await res.text();
+  
+  if (text.trim() === "0") {
+    return NextResponse.json({ error: "ThingSpeak rate limit (Please wait 15 seconds between clicks)" }, { status: 429 });
+  }
+
   return NextResponse.json({
     ok: res.ok,
     thingSpeakResponse: text.trim(),

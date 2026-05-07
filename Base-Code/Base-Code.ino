@@ -48,7 +48,6 @@ enum Mode {
 Mode currentMode = MODE_OFF;
 bool manualOverride = false;
 bool emergencyOverride = false;
-int globalManualBrightness = 3; // 1 = Low, 2 = Medium, 3 = Max
 
 // ===================== AUTO LOGIC =====================
 const unsigned long MOTION_HOLD_MS = 3UL * 60UL * 1000UL; // 3 minutes
@@ -237,8 +236,8 @@ void processAutomaticLogic(int ldrValue) {
     setTeachingMode();
   }
   // Mid band -> keep current mode, do not flip-flop
-  else if (currentMode == MODE_OFF) {
-    // If we transition into mid-band from OFF, pick a default active mode
+  // Only valid auto modes to keep are TEACHING and ENERGY_SAVING.
+  else if (currentMode != MODE_TEACHING && currentMode != MODE_ENERGY_SAVING) {
     setTeachingMode();
   }
 }
@@ -320,19 +319,9 @@ void turnOffAll() {
 void applyOutputs(const OutputState &out) {
   currentOutputs = out;
 
-  float brightnessFactor = 1.0f;
-  if (manualOverride) {
-    if (globalManualBrightness == 1) brightnessFactor = 0.33f;
-    else if (globalManualBrightness == 2) brightnessFactor = 0.66f;
-  }
-
-  int outR1 = (int)(out.row1 * brightnessFactor);
-  int outR2 = (int)(out.row2 * brightnessFactor);
-  int outR3 = (int)(out.row3 * brightnessFactor);
-
-  analogWrite(ROW1_PIN, outR1);
-  analogWrite(ROW2_PIN, outR2);
-  analogWrite(ROW3_PIN, outR3);
+  analogWrite(ROW1_PIN, out.row1);
+  analogWrite(ROW2_PIN, out.row2);
+  analogWrite(ROW3_PIN, out.row3);
 
   digitalWrite(RED_LED,    out.red    ? HIGH : LOW);
   digitalWrite(YELLOW_LED, out.yellow ? HIGH : LOW);
@@ -361,14 +350,8 @@ void accumulateEnergy() {
 }
 
 float estimateInstantPowerW(const OutputState &out) {
-  float brightnessFactor = 1.0f;
-  if (manualOverride && !emergencyOverride) {
-    if (globalManualBrightness == 1) brightnessFactor = 0.33f;
-    else if (globalManualBrightness == 2) brightnessFactor = 0.66f;
-  }
-
   auto rowPower = [&](int pwm) -> float {
-    return ROW_FULL_POWER_W * ((pwm * brightnessFactor) / 255.0f);
+    return ROW_FULL_POWER_W * (pwm / 255.0f);
   };
 
   float power = 0.0f;
@@ -431,14 +414,9 @@ void pollControlFromThingSpeak() {
   }
   lastProcessedControlEntryId = entryId;
 
-  int modeCmd = readJsonIntField(json, "field1", -1);      // -1 = no change, 0 = no change, 1..5 = modes
+  int modeCmd = readJsonIntField(json, "field1", -1);      // -1 = no change, 0 = OFF, 1..5 = modes
   int autoFlag = readJsonIntField(json, "field2", -1);     // -1 = no change, 1 = auto, 0 = manual
   int emergencyFlag = readJsonIntField(json, "field3", -1); // -1 = no change
-  int brightnessCmd = readJsonIntField(json, "field4", -1); // optional manual brightness
-
-  if (brightnessCmd >= 1 && brightnessCmd <= 3) {
-    globalManualBrightness = brightnessCmd;
-  }
 
   if (emergencyFlag == 1) {
     emergencyOverride = true;
@@ -453,9 +431,11 @@ void pollControlFromThingSpeak() {
     manualOverride = true;
   }
 
-  if (modeCmd >= 1 && modeCmd <= 5) {
-    manualOverride = true;
+  if (manualOverride && modeCmd >= 0 && modeCmd <= 5) {
     switch (modeCmd) {
+      case 0:
+        turnOffAll();
+        break;
       case 1:
         setTeachingMode();
         break;

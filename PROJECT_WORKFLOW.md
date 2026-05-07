@@ -6,7 +6,7 @@ The project is an IoT-enabled Smart Classroom system that uses an **ESP32 microc
 **The Triangle of Communication:**
 1. **ESP32 (Hardware)**: Reads sensors, computes local logic, controls LEDs, and pushes data to ThingSpeak.
 2. **ThingSpeak (Cloud Broker)**: Holds two channels—one for Telemetry (sensor data) and one for Control (UI commands).
-3. **Next.js (Frontend)**: Pulls Telemetry data to display charts/stats and pushes Control data when the user clicks a button or drags a slider.
+3. **Next.js (Frontend)**: Pulls Telemetry data to display charts/stats and pushes Control data when the user clicks a button.
 
 ## 2. Hardware Layer: ESP32 Logic (`Base-Code.ino`)
 The ESP32 runs a continuous `loop()` that handles several critical tasks.
@@ -28,7 +28,7 @@ Calculated entirely on the ESP32:
 #### D. The Overrides
 The ESP32 processes logic in a specific hierarchy to ensure safety:
 1. **Emergency Override**: Triggers alarms and red lights regardless of anything else.
-2. **Manual Override**: Listens to the UI via ThingSpeak. If a user selects "Presentation" or sets a manual slider, the ESP32 ignores sensors and forces the requested lighting.
+2. **Manual Override**: Listens to the UI via ThingSpeak. If a user selects a preset like "Presentation", the ESP32 ignores sensors and forces the requested lighting.
 3. **Automatic Logic**: If no overrides are active, it relies on the PIR and LDR sensors to make decisions.
 
 ## 3. Cloud Broker: ThingSpeak API
@@ -36,7 +36,7 @@ ThingSpeak acts as the middleman to solve the issue of the ESP32 and Next.js ser
 
 * **Telemetry Channel (ESP32 -> Cloud)**: Every 20 seconds, the ESP32 bundles its Pir state, LDR state, current Mode, Occupancy, active Power, Accumulated Energy, and Buzzer state into an HTTP GET request to update Fields 1 through 8.
 * **Control Channel (Cloud <- Next.js)**: When you click a button on the UI, Next.js writes to this channel. 
-* **Polling (Cloud -> ESP32)**: Every 5 seconds, the ESP32 checks the Control Channel to see if the UI has requested a mode change or brightness override.
+* **Polling (Cloud -> ESP32)**: Every 3 seconds, the ESP32 checks the Control Channel to see if the UI has requested a mode change.
 
 ## 4. Software Layer: Next.js Frontend (`app/page.js`)
 The dashboard provides a premium, non-AI-looking graphical interface for the classroom.
@@ -53,15 +53,14 @@ The dashboard provides a premium, non-AI-looking graphical interface for the cla
 When a user interacts with the Control Panel:
 1. **Auto / Manual Switch**: Determines whether the UI sends a `mode: 0, auto: true` command (re-enabling sensor logic) or locks into manual.
 2. **Preset Buttons**: E.g., Clicking "Focus" fires an API POST to `/api/thingspeak/command` setting the ThingSpeak control field to `4`.
-3. **Custom Checkpoint Slider**: Only active in **Manual Mode**. Sliding it to "Low", "Med", or "Max" sends a command (`mode: 6, brightness: 1, 2, or 3`). The ESP32 maps 1, 2, and 3 to PWM values of `85`, `170`, and `255`.
 
 ## 5. Detailed Step-by-Step Flow Example
 
-**Scenario: User activates the Custom Brightness Slider**
-1. **User Action**: The dashboard is set to "Manual". The user drags the slider to `Med` (Value = `2`).
-2. **Frontend API Call**: `sendCommand()` serializes a JSON payload: `{ mode: 6, auto: false, emergency: 0, brightness: 2 }` and POSTs it to the Next.js backend.
+**Scenario: User activates the "Focus" Preset**
+1. **User Action**: The dashboard is set to "Manual". The user clicks the `Focus` preset button.
+2. **Frontend API Call**: `sendCommand()` serializes a JSON payload: `{ mode: 4, auto: false, emergency: 0 }` and POSTs it to the Next.js backend.
 3. **Next.js Backend**: The `/api/thingspeak/command/route.js` receives the JSON, formats it into a ThingSpeak API string, and transmits it to the **Control Channel**.
-4. **Hardware Polling**: Within ~5 seconds, the ESP32 runs `pollControlFromThingSpeak()` and reads the newly updated value from the Control Channel.
-5. **Hardware Execution**: The ESP32 switches `manualOverride = true`, flags `currentMode = MODE_CUSTOM (6)`, and calls `setCustomBrightness(2)`. The physical LED rows are updated to the `170` PWM signal (Medium).
-6. **Hardware Feedback**: On the next 20-second interval, the ESP32 pushes its new state (including the new higher wattage from the brighter LEDs) back up to the **Telemetry Channel**.
-7. **Frontend Update**: 15 seconds later, the React dashboard polls the Telemetry Channel, receives the higher wattage and new `CUSTOM` mode label, and visually updates the user interface and Recharts graph to reflect the change.
+4. **Hardware Polling**: Within ~3 seconds, the ESP32 runs `pollControlFromThingSpeak()` and reads the newly updated value from the Control Channel.
+5. **Hardware Execution**: The ESP32 switches `manualOverride = true`, flags `currentMode = MODE_FOCUS (4)`, and adjusts the physical LED rows correctly for deep focus lighting.
+6. **Hardware Feedback**: On the next 20-second interval, the ESP32 pushes its new state (including the new wattage from the updated LEDs) back up to the **Telemetry Channel**.
+7. **Frontend Update**: 15 seconds later, the React dashboard polls the Telemetry Channel, receives the updated wattage and new `FOCUS` mode label, and visually updates the user interface and Recharts graph to reflect the change.

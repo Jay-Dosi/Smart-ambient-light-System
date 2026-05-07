@@ -47,7 +47,7 @@ export default function Page() {
   const [autoMode, setAutoMode] = useState(true);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const [sliderVal, setSliderVal] = useState(3);
+  const [lastCmdTime, setLastCmdTime] = useState(0);
 
   async function loadTelemetry() {
     try {
@@ -97,6 +97,14 @@ export default function Page() {
     };
   }, [latest]);
 
+  useEffect(() => {
+    if (!sending && parsed.mode >= 1 && parsed.mode <= 5) {
+      if (Date.now() - lastCmdTime > 25000) {
+        setControlMode(parsed.mode);
+      }
+    }
+  }, [parsed, sending, lastCmdTime]);
+
   const ldrPct = Math.max(0, Math.min(100, Math.round((parsed.ldr / 4095) * 100)));
 
   const savePercent = useMemo(() => {
@@ -127,7 +135,7 @@ export default function Page() {
 
       setControlMode(next.mode ?? 0);
       setAutoMode(!!next.auto);
-      await loadTelemetry();
+      setLastCmdTime(Date.now());
     } catch (e) {
       setError(e.message || "Command failed");
     } finally {
@@ -191,23 +199,7 @@ export default function Page() {
           />
         </section>
 
-        <section className="grid gap-5 md:grid-cols-3">
-          <Card
-            title="Current Draw"
-            value={`${parsed.power.toFixed(2)} W`}
-            sub="Live estimated power"
-          />
-          <Card
-            title="LED Brightness"
-            value={String(parsed.brightness)}
-            sub="0 to 1 level indicator"
-          />
-          <Card
-            title="Alert Status"
-            value={parsed.buzzer ? "ALARM" : "CLEAR"}
-            sub={parsed.buzzer ? "Emergency mode active" : "Normal ops"}
-          />
-        </section>
+
 
         <div className="grid gap-6 lg:grid-cols-3">
           <section className="lg:col-span-2 rounded-xl border border-slate-800 bg-slate-900 p-6">
@@ -231,7 +223,7 @@ export default function Page() {
                 </button>
                 <button
                   disabled={sending}
-                  onClick={() => sendCommand({ mode: 0, auto: false, emergency: 0 })}
+                  onClick={() => sendCommand({ mode: controlMode || 1, auto: false, emergency: 0 })}
                   className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${!autoMode ? "bg-slate-700 text-white" : "text-slate-400 hover:text-white"}`}
                 >
                   Manual
@@ -247,7 +239,7 @@ export default function Page() {
                     key={btn.mode}
                     disabled={sending || autoMode}
                     onClick={() =>
-                      sendCommand({ mode: btn.mode, auto: false, emergency: btn.mode === 5 ? 1 : 0, brightness: sliderVal })
+                      sendCommand({ mode: btn.mode, auto: false, emergency: btn.mode === 5 ? 1 : 0 })
                     }
                     className={`rounded-xl border p-4 text-left transition-colors ${
                       isActive
@@ -262,42 +254,6 @@ export default function Page() {
               })}
             </div>
 
-            <div className={`mt-8 border-t border-slate-800 pt-6 transition-opacity ${autoMode ? "opacity-30 pointer-events-none" : "opacity-100"}`}>
-              <div className="text-xs uppercase tracking-widest font-medium text-slate-400 mb-6">
-                Manual Brightness Override
-              </div>
-              <div className="px-2">
-                <div className="relative">
-                  <div className="absolute top-1/2 left-0 right-0 h-1.5 -mt-[3px] bg-slate-800 rounded-full flex justify-between px-[2px] pointer-events-none">
-                    {[1, 2, 3].map((stop) => (
-                      <div key={stop} className={`h-1.5 w-1.5 rounded-full ${sliderVal >= stop ? "bg-blue-500" : "bg-slate-600"}`} />
-                    ))}
-                  </div>
-                  
-                  <input
-                    type="range"
-                    min="1"
-                    max="3"
-                    step="1"
-                    disabled={sending || autoMode}
-                    value={Math.max(1, sliderVal)}
-                    onChange={(e) => setSliderVal(Number(e.target.value))}
-                    onMouseUp={(e) => {
-                      if (!autoMode) {
-                        sendCommand({ mode: controlMode, auto: false, emergency: controlMode === 5 ? 1 : 0, brightness: Number(e.target.value) });
-                      }
-                    }}
-                    className="relative z-10 w-full h-2 appearance-none bg-transparent cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-500 [&::-webkit-slider-thumb]:border-[3px] [&::-webkit-slider-thumb]:border-slate-900 [&::-moz-range-thumb]:w-5 [&::-moz-range-thumb]:h-5 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-blue-500 [&::-moz-range-thumb]:border-[3px] [&::-moz-range-thumb]:border-slate-900"
-                  />
-                </div>
-                
-                <div className="flex justify-between mt-3 text-xs font-semibold text-slate-500 uppercase tracking-widest">
-                  <span className={sliderVal <= 1 ? "text-blue-400" : ""}>Low</span>
-                  <span className={sliderVal === 2 ? "text-blue-400" : ""}>Med</span>
-                  <span className={sliderVal === 3 ? "text-blue-400" : ""}>Max</span>
-                </div>
-              </div>
-            </div>
           </section>
 
           <section className="col-span-1 rounded-xl border border-slate-800 bg-slate-900 p-6 flex flex-col min-h-[300px]">
